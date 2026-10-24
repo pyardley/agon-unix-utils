@@ -31,7 +31,7 @@ Build requires [AgDev](https://github.com/pcawte/AgDev) (`cedev-config` / `ez80-
 
 ### sheet notes
 
-- Grid defaults: 8 columns × 32 rows (`sheet/src/config.h`).
+- Grid defaults: 16 columns (A–P) × 80 rows (`sheet/src/config.h`); viewport scrolls.
 - On start, switches to **MODE 0** (640×480, 16 colours / ~80×60 text) and restores the previous mode on quit.
 - Formulas start with `=`: `=A1+B2`, `=A1:A5` (sum), `=SUM(A1:B2)`, `=AVG` / `MIN` / `MAX` / `COUNT` / `ABS` / `SQRT`.
 - Keys: arrows or `hjkl` move, Enter edit, `/` commands (`/s` save, `/l` load, `/w` write, `/q` quit, `/c` clear, `/g A1` goto), `?` help.

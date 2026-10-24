@@ -75,7 +75,7 @@ bool sheet_parse_ref(const char *p, int *r, int *c, const char **end)
 
 void sheet_format_ref(int r, int c, char *out, int outlen)
 {
-	if (outlen < 4 || r < 0 || c < 0 || r >= SHEET_ROWS || c >= SHEET_COLS) {
+	if (outlen < 6 || r < 0 || c < 0 || r >= SHEET_ROWS || c >= SHEET_COLS) {
 		if (outlen > 0)
 			out[0] = '\0';
 		return;

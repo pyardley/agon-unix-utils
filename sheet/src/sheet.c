@@ -24,6 +24,11 @@
 /* Mode 0: 640×480, 16 colours, ~80×60 text (mode 1 is only 4 colours). */
 #define SHEET_SCREEN_MODE 0
 
+/* Screen rows: chrome, column letters, grid..., keys. */
+#define ROW_CHROME  0
+#define ROW_COLS    1
+#define ROW_GRID0   2
+
 /* FabGL VirtualKey codes (fabutils.h) — used as a fallback to kbmap. */
 #define VK_ESCAPE    125
 #define VK_BACKSPACE 132
@@ -133,36 +138,88 @@ static void move_cur(Sheet *s, int dr, int dc)
 	ensure_visible(s);
 }
 
-static void put_n(const char *s, int width, bool hilite)
+/*
+ * Screen output must go through mos_puts / putch — never stdio.
+ * fputc(9)/fputc(10)/… via stdout are handled as TAB/LF/etc by the C
+ * library, which desyncs VDU 31 (cursor tab) and drops row 9, leaves
+ * ghost highlights, and parks a blinking cursor in empty space.
+ *
+ * Never write the last screen column: wrap there scrolls the display.
+ */
+static int usable_cols(void)
 {
-	char buf[32];
+	int cols = g_sv->scrCols;
+	if (cols < 2)
+		return 1;
+	return cols - 1;
+}
+
+static void vdu_write(const char *buf, unsigned n)
+{
+	if (n)
+		mos_puts((char *)buf, n, 0);
+}
+
+static void put_str(const char *s)
+{
+	unsigned n;
+	if (!s || !s[0])
+		return;
+	n = (unsigned)strlen(s);
+	mos_puts((char *)s, n, 0);
+}
+
+static void put_ch(char c)
+{
+	mos_puts(&c, 1, 0);
+}
+
+static void gotoxy(int x, int y)
+{
+	char cmd[3];
+	cmd[0] = 31;
+	cmd[1] = (char)(x & 0xff);
+	cmd[2] = (char)(y & 0xff);
+	mos_puts(cmd, 3, 0);
+}
+
+static void setcol(int c)
+{
+	char cmd[2];
+	cmd[0] = 17;
+	cmd[1] = (char)(c & 0xff);
+	mos_puts(cmd, 2, 0);
+}
+
+static void hide_cursor(void)
+{
+	vdp_cursor_enable(false);
+	/* Park under chrome so a failed hide is still out of the grid. */
+	gotoxy(0, ROW_CHROME);
+}
+
+/* Format one cell into width chars; hilite wraps value in [ ]. */
+static void fmt_cell(const char *s, int width, bool hilite, char *out)
+{
 	int i, n, inner;
 
 	if (width < 3)
 		width = 3;
-	if (width >= (int)sizeof(buf))
-		width = (int)sizeof(buf) - 1;
+	if (!s)
+		s = "";
 
-	/*
-	 * Selected cell: [value] so it's obvious even in low-colour modes.
-	 * Colour 2 (green) also helps when 16-colour mode 0 is active.
-	 */
 	if (hilite) {
 		inner = width - 2;
 		n = (int)strlen(s);
 		if (n > inner)
 			n = inner;
-		buf[0] = '[';
+		out[0] = '[';
 		for (i = 0; i < n; i++)
-			buf[1 + i] = s[i];
+			out[1 + i] = s[i];
 		for (; i < inner; i++)
-			buf[1 + i] = ' ';
-		buf[width - 1] = ']';
-		buf[width] = '\0';
-		vdp_set_text_colour(2);
-		fputs(buf, stdout);
-		fflush(stdout);
-		vdp_set_text_colour(7);
+			out[1 + i] = ' ';
+		out[width - 1] = ']';
+		out[width] = '\0';
 		return;
 	}
 
@@ -170,12 +227,10 @@ static void put_n(const char *s, int width, bool hilite)
 	if (n > width)
 		n = width;
 	for (i = 0; i < n; i++)
-		buf[i] = s[i];
+		out[i] = s[i];
 	for (; i < width; i++)
-		buf[i] = ' ';
-	buf[width] = '\0';
-	fputs(buf, stdout);
-	fflush(stdout);
+		out[i] = ' ';
+	out[width] = '\0';
 }
 
 static void refresh_dims(void)
@@ -220,11 +275,17 @@ static void restore_screen(void)
 	g_mode_set = false;
 }
 
+/* Write one screen row; pads to usable width; never touches last column. */
 static void line_at(int x, int y, const char *text, int maxcols)
 {
 	char buf[128];
-	int n, i;
+	int n, i, lim;
 
+	lim = usable_cols() - x;
+	if (lim < 1)
+		return;
+	if (maxcols > lim)
+		maxcols = lim;
 	if (maxcols > (int)sizeof(buf) - 1)
 		maxcols = (int)sizeof(buf) - 1;
 	if (maxcols < 1)
@@ -237,154 +298,165 @@ static void line_at(int x, int y, const char *text, int maxcols)
 	for (; i < maxcols; i++)
 		buf[i] = ' ';
 	buf[maxcols] = '\0';
-	vdp_cursor_tab(x, y);
-	fputs(buf, stdout);
+	gotoxy(x, y);
+	setcol(7);
+	vdu_write(buf, (unsigned)maxcols);
 }
 
 static void layout(void)
 {
-	int cols = g_sv->scrCols;
+	int cols = usable_cols();
 	int rows = g_sv->scrRows;
 
 	if (cols < 1)
 		cols = 1;
-	if (rows < 5)
-		rows = 5;
+	if (rows < 4)
+		rows = 4;
 
-	g_grid_cols = (cols - 4) / COL_WIDTH;
+	/* 4-char gutter (e.g. ">100") + cells */
+	g_grid_cols = (cols - 5) / COL_WIDTH;
 	if (g_grid_cols > SHEET_COLS)
 		g_grid_cols = SHEET_COLS;
 	if (g_grid_cols < 1)
 		g_grid_cols = 1;
 
-	g_grid_rows = rows - 4;
+	/* chrome + col headers + bottom keys */
+	g_grid_rows = rows - 3;
 	if (g_grid_rows > SHEET_ROWS)
 		g_grid_rows = SHEET_ROWS;
 	if (g_grid_rows < 1)
 		g_grid_rows = 1;
 }
 
-static void draw_bars(Sheet *s)
+/* One top line: cell ref, contents, filename, help hint. */
+static void draw_chrome(Sheet *s)
 {
 	char ref[8];
 	char line[128];
-	int cols = g_sv->scrCols;
+	char body[40];
 	const Cell *cell;
-
-	if (cols < 1)
-		cols = 1;
+	const char *fname;
+	int cols = usable_cols();
 
 	sheet_format_ref(s->cur_r, s->cur_c, ref, sizeof(ref));
 	cell = sheet_cell_const(s, s->cur_r, s->cur_c);
-	snprintf(line, sizeof(line), "%s  %s", ref,
-		 cell && cell->text[0] ? cell->text : "");
-	line_at(0, 0, line, cols);
+	if (cell && cell->text[0]) {
+		strncpy(body, cell->text, sizeof(body) - 1);
+		body[sizeof(body) - 1] = '\0';
+	} else {
+		body[0] = '\0';
+	}
+	fname = s->filename[0] ? s->filename : "(untitled)";
 
-	snprintf(line, sizeof(line), "%s%s  %s",
-		 s->filename[0] ? s->filename : "(untitled)",
-		 s->dirty ? "*" : " ",
-		 g_status);
-	line_at(0, 1, line, cols);
+	/* Prefer showing status when set; otherwise the static help hint. */
+	if (g_status[0] && strcmp(g_status, "? for help") != 0)
+		snprintf(line, sizeof(line), "%s %-12s  %s%s  %s",
+			 ref, body, fname, s->dirty ? "*" : "", g_status);
+	else
+		snprintf(line, sizeof(line), "%s %-12s  %s%s  ? help",
+			 ref, body, fname, s->dirty ? "*" : "");
+	line_at(0, ROW_CHROME, line, cols);
 }
 
+/*
+ * Paint a whole row with a single gotoxy(0,y) then left-to-right writes.
+ * Per-cell gotoxy was landing on the wrong rows (ghost A2+A4 selection).
+ */
 static void draw_headers(Sheet *s)
 {
+	char cell[COL_WIDTH + 1];
+	char letter[4];
 	int c;
-	int cols = g_sv->scrCols;
+	int cols = usable_cols();
+	int used = 4;
 
-	/* Clear header row, then place each label absolutely. */
-	line_at(0, 2, "", cols > 0 ? cols : 1);
-	vdp_cursor_tab(0, 2);
-	fputs("   ", stdout);
-	fflush(stdout);
+	gotoxy(0, ROW_COLS);
+	setcol(7);
+	put_str("    ");
 	for (c = 0; c < g_grid_cols; c++) {
 		int cc = s->view_c + c;
-		char hdr[COL_WIDTH + 1];
-		int x = 3 + c * COL_WIDTH;
-		if (cc >= SHEET_COLS)
+		bool hilite;
+		if (cc >= SHEET_COLS || used + COL_WIDTH > cols)
 			break;
-		snprintf(hdr, sizeof(hdr), "%*c", COL_WIDTH / 2 + 1, 'A' + cc);
-		vdp_cursor_tab(x, 2);
-		put_n(hdr, COL_WIDTH, cc == s->cur_c);
+		hilite = (cc == s->cur_c);
+		snprintf(letter, sizeof(letter), "%c", 'A' + cc);
+		fmt_cell(letter, COL_WIDTH, hilite, cell);
+		if (hilite)
+			setcol(2);
+		else
+			setcol(7);
+		put_str(cell);
+		used += COL_WIDTH;
+	}
+	setcol(7);
+	while (used < cols) {
+		put_ch(' ');
+		used++;
 	}
 }
 
 static void draw_grid(Sheet *s)
 {
-	char line[8];
+	char gutter[6];
 	char disp[COL_WIDTH + 1];
+	char cell[COL_WIDTH + 1];
 	int r, c;
 	int rows = g_sv->scrRows;
+	int cols = usable_cols();
 
 	for (r = 0; r < g_grid_rows; r++) {
 		int rr = s->view_r + r;
-		int y = 3 + r;
+		int y = ROW_GRID0 + r;
+		int used;
+		bool row_on;
 
 		if (y >= rows - 1 || rr >= SHEET_ROWS)
 			break;
-		vdp_cursor_tab(0, y);
-		snprintf(line, sizeof(line), "%2d ", rr + 1);
-		fputs(line, stdout);
-		fflush(stdout);
+
+		row_on = (rr == s->cur_r);
+		/* '>' marks the selected row in the gutter — only one row. */
+		snprintf(gutter, sizeof(gutter), "%c%3d",
+			 row_on ? '>' : ' ', rr + 1);
+
+		gotoxy(0, y);
+		setcol(7);
+		put_str(gutter);
+		used = 4;
+
 		for (c = 0; c < g_grid_cols; c++) {
 			int cc = s->view_c + c;
-			const Cell *cell;
-			int x = 3 + c * COL_WIDTH;
-			if (cc >= SHEET_COLS)
+			const Cell *cellp;
+			bool hilite;
+			if (cc >= SHEET_COLS || used + COL_WIDTH > cols)
 				break;
-			cell = sheet_cell_const(s, rr, cc);
-			sheet_display(cell, disp, sizeof(disp));
-			vdp_cursor_tab(x, y);
-			put_n(disp, COL_WIDTH, rr == s->cur_r && cc == s->cur_c);
+			cellp = sheet_cell_const(s, rr, cc);
+			sheet_display(cellp, disp, sizeof(disp));
+			hilite = (rr == s->cur_r && cc == s->cur_c);
+			fmt_cell(disp, COL_WIDTH, hilite, cell);
+			if (hilite)
+				setcol(2);
+			else
+				setcol(7);
+			put_str(cell);
+			used += COL_WIDTH;
+		}
+		setcol(7);
+		while (used < cols) {
+			put_ch(' ');
+			used++;
 		}
 	}
 }
 
-static void draw_help(void)
+static void draw_keys(void)
 {
-	int cols = g_sv->scrCols;
+	int cols = usable_cols();
 	int rows = g_sv->scrRows;
-	if (cols < 1)
-		cols = 1;
 	if (rows < 1)
 		return;
 	line_at(0, rows - 1,
-		"Arrows/hjkl move  Enter edit  /cmd  ?help  Esc quit",
+		"Arrows/hjkl move  Enter edit  /cmd  Esc quit",
 		cols);
-}
-
-static void draw_cell_at(Sheet *s, int r, int c, bool hilite)
-{
-	char disp[COL_WIDTH + 1];
-	const Cell *cell;
-	int vr = r - s->view_r;
-	int vc = c - s->view_c;
-	int x, y;
-
-	if (vr < 0 || vc < 0 || vr >= g_grid_rows || vc >= g_grid_cols)
-		return;
-	y = 3 + vr;
-	if (y >= g_sv->scrRows - 1)
-		return;
-	x = 3 + vc * COL_WIDTH;
-	cell = sheet_cell_const(s, r, c);
-	sheet_display(cell, disp, sizeof(disp));
-	vdp_cursor_tab(x, y);
-	put_n(disp, COL_WIDTH, hilite);
-}
-
-static void draw_header_col(Sheet *s, int c, bool hilite)
-{
-	char hdr[COL_WIDTH + 1];
-	int vc = c - s->view_c;
-	int x;
-
-	if (vc < 0 || vc >= g_grid_cols || c < 0 || c >= SHEET_COLS)
-		return;
-	x = 3 + vc * COL_WIDTH;
-	snprintf(hdr, sizeof(hdr), "%*c", COL_WIDTH / 2 + 1, 'A' + c);
-	vdp_cursor_tab(x, 2);
-	put_n(hdr, COL_WIDTH, hilite);
 }
 
 static void draw_full(Sheet *s)
@@ -392,10 +464,11 @@ static void draw_full(Sheet *s)
 	vdp_cls();
 	layout();
 	ensure_visible(s);
-	draw_bars(s);
+	draw_chrome(s);
 	draw_headers(s);
 	draw_grid(s);
-	draw_help();
+	draw_keys();
+	hide_cursor();
 	g_prev_r = s->cur_r;
 	g_prev_c = s->cur_c;
 	g_prev_view_r = s->view_r;
@@ -403,31 +476,21 @@ static void draw_full(Sheet *s)
 }
 
 /*
- * Arrow / hjkl move: keep chrome on screen (no CLS). Only rewrite the
- * formula/status bars and the old/new cell (+ column header marker).
+ * Arrow / hjkl: no CLS (avoids flash). Repaint chrome, headers, and the
+ * whole grid so stale [brackets] cannot linger from a bad undraw.
  */
 static void draw_move(Sheet *s)
 {
-	int old_r = g_prev_r;
-	int old_c = g_prev_c;
-
 	ensure_visible(s);
 	if (s->view_r != g_prev_view_r || s->view_c != g_prev_view_c) {
 		draw_full(s);
 		return;
 	}
 
-	/* Top two lines stay put — just refresh their text. */
-	draw_bars(s);
-
-	if (old_r != s->cur_r || old_c != s->cur_c) {
-		draw_cell_at(s, old_r, old_c, false);
-		draw_cell_at(s, s->cur_r, s->cur_c, true);
-		if (old_c != s->cur_c) {
-			draw_header_col(s, old_c, false);
-			draw_header_col(s, s->cur_c, true);
-		}
-	}
+	draw_chrome(s);
+	draw_headers(s);
+	draw_grid(s);
+	hide_cursor();
 
 	g_prev_r = s->cur_r;
 	g_prev_c = s->cur_c;
@@ -609,12 +672,13 @@ static void prompt_command(Sheet *s)
 	char buf[FILENAME_LEN + 4];
 	uint8_t rc;
 
+	line_at(0, ROW_CHROME, "", usable_cols());
 	vdp_cursor_enable(true);
-	vdp_cursor_tab(0, 1);
-	fputs("/ ", stdout);
+	gotoxy(0, ROW_CHROME);
+	put_str("/ ");
 	buf[0] = '\0';
 	rc = mos_editline(buf, sizeof(buf), 1);
-	vdp_cursor_enable(false);
+	hide_cursor();
 	if (rc == 27) {
 		set_status("cancelled");
 		return;
@@ -644,12 +708,12 @@ static void edit_cell(Sheet *s, const char *seed)
 	}
 
 	snprintf(prompt, sizeof(prompt), "%s> ", ref);
+	line_at(0, ROW_CHROME, "", usable_cols());
 	vdp_cursor_enable(true);
-	vdp_cursor_tab(0, 0);
-	fputs(prompt, stdout);
-	/* clearbuffer=0 keeps seed/existing text for editing */
+	gotoxy(0, ROW_CHROME);
+	put_str(prompt);
 	rc = mos_editline(buf, sizeof(buf), 0);
-	vdp_cursor_enable(false);
+	hide_cursor();
 
 	if (rc == 27) {
 		set_status("cancelled");
@@ -893,6 +957,42 @@ static int run_selftest(void)
 		fails++;
 	} else {
 		printf("PASS ABS\n");
+	}
+
+	/* CSV round-trip — catches AgDev fputs()-adds-newline regression. */
+	{
+		const char *er = NULL;
+		char got[80];
+		size_t n;
+		FILE *cfp;
+		sheet_init(s);
+		sheet_set_text(s, 0, 0, "Item");
+		sheet_set_text(s, 0, 1, "Qty");
+		sheet_set_text(s, 0, 7, "Test");
+		sheet_set_text(s, 1, 0, "Widgets");
+		sheet_set_text(s, 1, 1, "3");
+		if (!sheet_save_csv(s, "sheet_rt.csv", &er)) {
+			printf("FAIL csv save\n");
+			fails++;
+		} else if (!(cfp = fopen("sheet_rt.csv", "rb"))) {
+			printf("FAIL csv reopen\n");
+			fails++;
+		} else {
+			n = fread(got, 1, sizeof(got) - 1, cfp);
+			fclose(cfp);
+			got[n] = '\0';
+			if (strcmp(got, "Item,Qty,,,,,,Test\nWidgets,3\n") != 0) {
+				printf("FAIL csv scrambled:\n%s\n", got);
+				fails++;
+			} else if (!sheet_load_csv(s, "sheet_rt.csv", &er) ||
+				   strcmp(s->cells[0][7].text, "Test") != 0 ||
+				   strcmp(s->cells[1][0].text, "Widgets") != 0) {
+				printf("FAIL csv reload\n");
+				fails++;
+			} else {
+				printf("PASS csv roundtrip\n");
+			}
+		}
 	}
 
 	fp = fopen("sheet_test.txt", "w");

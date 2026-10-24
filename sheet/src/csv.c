@@ -6,12 +6,27 @@
 /*
  * CSV layout: rows of comma-separated cell text (formulas keep leading '=').
  * Cells containing comma or quote are wrapped in double quotes; quotes doubled.
+ *
+ * AgDev libc fputs() always appends a newline (non-ISO). Never use fputs for
+ * field data — it turned every cell into its own CSV record.
  */
+
+static void write_raw(FILE *fp, const char *text, size_t n)
+{
+	if (n)
+		fwrite(text, 1, n, fp);
+}
+
+static void write_char(FILE *fp, char ch)
+{
+	fwrite(&ch, 1, 1, fp);
+}
 
 static void write_field(FILE *fp, const char *text)
 {
 	bool need_q = false;
 	const char *p;
+	size_t n;
 
 	if (!text)
 		text = "";
@@ -22,16 +37,17 @@ static void write_field(FILE *fp, const char *text)
 		}
 	}
 	if (!need_q) {
-		fputs(text, fp);
+		n = strlen(text);
+		write_raw(fp, text, n);
 		return;
 	}
-	fputc('"', fp);
+	write_char(fp, '"');
 	for (p = text; *p; p++) {
 		if (*p == '"')
-			fputc('"', fp);
-		fputc(*p, fp);
+			write_char(fp, '"');
+		write_char(fp, *p);
 	}
-	fputc('"', fp);
+	write_char(fp, '"');
 }
 
 bool sheet_save_csv(const Sheet *s, const char *path, const char **errmsg)
@@ -40,7 +56,8 @@ bool sheet_save_csv(const Sheet *s, const char *path, const char **errmsg)
 	int r, c;
 	int max_r = -1, max_c = -1;
 
-	fp = fopen(path, "w");
+	/* Binary mode avoids host/text translation surprises. */
+	fp = fopen(path, "wb");
 	if (!fp) {
 		if (errmsg)
 			*errmsg = "cannot write";
@@ -56,7 +73,7 @@ bool sheet_save_csv(const Sheet *s, const char *path, const char **errmsg)
 		}
 	}
 	if (max_r < 0) {
-		fputc('\n', fp);
+		write_char(fp, '\n');
 		fclose(fp);
 		return true;
 	}
@@ -64,10 +81,10 @@ bool sheet_save_csv(const Sheet *s, const char *path, const char **errmsg)
 	for (r = 0; r <= max_r; r++) {
 		for (c = 0; c <= max_c; c++) {
 			if (c)
-				fputc(',', fp);
+				write_char(fp, ',');
 			write_field(fp, s->cells[r][c].text);
 		}
-		fputc('\n', fp);
+		write_char(fp, '\n');
 	}
 	fclose(fp);
 	return true;
@@ -115,11 +132,11 @@ static int parse_csv_line(char *line, char *fields[], int max_fields)
 bool sheet_load_csv(Sheet *s, const char *path, const char **errmsg)
 {
 	FILE *fp;
-	char line[SHEET_COLS * CELL_TEXT_LEN + 32];
+	char line[SHEET_COLS * CELL_TEXT_LEN + 64];
 	int r = 0;
 	char name[FILENAME_LEN];
 
-	fp = fopen(path, "r");
+	fp = fopen(path, "rb");
 	if (!fp) {
 		if (errmsg)
 			*errmsg = "cannot open";
@@ -138,6 +155,10 @@ bool sheet_load_csv(Sheet *s, const char *path, const char **errmsg)
 
 		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
 			line[--len] = '\0';
+
+		/* Skip empty trailing lines without consuming a sheet row. */
+		if (len == 0)
+			continue;
 
 		memset(fields, 0, sizeof(fields));
 		n = parse_csv_line(line, fields, SHEET_COLS);
