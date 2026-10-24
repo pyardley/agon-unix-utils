@@ -1,4 +1,4 @@
-.PHONY: all clean install
+.PHONY: all clean install test
 
 export PATH := $(HOME)/development/tools/agdev/bin:$(PATH)
 
@@ -15,6 +15,8 @@ all:
 clean:
 	@for u in $(UTILS); do $(MAKE) -C $$u clean || true; done
 	rm -f bin/*.bin mos/*.bin
+	rm -rf tests/sdcard
+	rm -rf $(HOME)/.agon-sdcard/_test_agon_unix_utils
 
 install: all
 	cp -f mos/*.bin $(HOME)/.agon-sdcard/mos/
@@ -22,3 +24,6 @@ install: all
 		cp -f third_party/vascocosta/head.bin third_party/vascocosta/tail.bin \
 			$(HOME)/.agon-sdcard/mos/; \
 	fi
+
+test: all
+	./tests/run-emulator-tests.sh

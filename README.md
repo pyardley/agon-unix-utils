@@ -85,6 +85,19 @@ Examples: `CAT` / `DIR`, `TYPE`, `COPY`, `DELETE` / `RM`, `MkDir`, `CD`, `LOAD`,
 
 ---
 
+## Build / install / test
+
+```bash
+export PATH="$HOME/development/tools/agdev/bin:$PATH"
+make            # build all moslets into mos/ and bin/
+make install    # copy to ~/.agon-sdcard/mos/ (+ Vasco head/tail if present)
+make test       # emulator suite (Fab Agon Flatpak required)
+```
+
+The test runner (`tests/run-emulator-tests.sh`) boots `agon-cli-emulator` once per case on an isolated card at `~/.agon-sdcard/_test_agon_unix_utils`, with fixtures in `tests/fixtures/` and golden files in `tests/expected/`. Details: `tests/README.md`.
+
+---
+
 ## Notes for Agon
 
 - MOS does **not** support Unix pipes (`|`). Tools take **file arguments** (and optional `>` redirection).

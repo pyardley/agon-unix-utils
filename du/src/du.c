@@ -63,7 +63,8 @@ static unsigned long du_path(const char *path, bool print_each)
 			snprintf(child, sizeof(child), "%s/%s", path, info.fname);
 
 		if (info.fattrib & AM_DIR) {
-			total += du_path(child, print_each);
+			/* With -s, only the top-level path should print. */
+			total += du_path(child, summarise ? false : print_each);
 		} else {
 			total += info.fsize;
 			if (print_each && !summarise)
@@ -72,7 +73,7 @@ static unsigned long du_path(const char *path, bool print_each)
 	}
 	ffs_dclose(&dir);
 
-	if (print_each || summarise)
+	if (print_each)
 		printf("%lu\t%s\n", total, path);
 	return total;
 }

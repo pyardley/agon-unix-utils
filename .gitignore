@@ -3,3 +3,6 @@
 **/*.lab
 **/*.8xp
 */bin/
+tests/sdcard/
+# Local emulator test card (under ~/.agon-sdcard for Flatpak access)
+# not in-repo; created by the runner
