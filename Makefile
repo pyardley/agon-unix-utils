@@ -2,7 +2,7 @@
 
 export PATH := $(HOME)/development/tools/agdev/bin:$(PATH)
 
-UTILS = cut uniq touch tee tr diff du df
+UTILS = cut uniq touch tee tr diff du df sheet
 
 all:
 	@for u in $(UTILS); do $(MAKE) -C $$u; done

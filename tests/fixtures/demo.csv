@@ -1,0 +1,5 @@
+Item,Qty,Price,Total
+Widgets,3,1.5,=B2*C2
+Gadgets,2,4,=B3*C3
+,,Subtotal,=D2:D3
+,,,=SUM(D2:D3)

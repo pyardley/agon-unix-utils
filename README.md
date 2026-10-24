@@ -25,8 +25,17 @@ make install   # copies to ~/.agon-sdcard/mos/ when using Fab Agon Emulator
 | **diff** | Line-oriented compare (`-q` quiet) | `diff a.txt b.txt` |
 | **du** | Disk usage of files/dirs in bytes (`-s` summarise) | `du -s games` |
 | **df** | Report bytes *used* on the volume (free space N/A via MOS API) | `df` |
+| **sheet** | Simple spreadsheet (formulas, CSV load/save) | `sheet budget.csv` |
 
 Build requires [AgDev](https://github.com/pcawte/AgDev) (`cedev-config` / `ez80-clang` on `PATH`).
+
+### sheet notes
+
+- Grid defaults: 8 columns × 32 rows (`sheet/src/config.h`).
+- On start, switches to **MODE 0** (640×480, 16 colours / ~80×60 text) and restores the previous mode on quit.
+- Formulas start with `=`: `=A1+B2`, `=A1:A5` (sum), `=SUM(A1:B2)`, `=AVG` / `MIN` / `MAX` / `COUNT` / `ABS` / `SQRT`.
+- Keys: arrows or `hjkl` move, Enter edit, `/` commands (`/s` save, `/l` load, `/w` write, `/q` quit, `/c` clear, `/g A1` goto), `?` help.
+- Extend formulas by adding a `FnEntry` in `sheet/src/formula.c`.
 
 ---
 
