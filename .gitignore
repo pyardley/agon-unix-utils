@@ -1,0 +1,6 @@
+**/obj/
+**/*.map
+**/*.lab
+**/*.8xp
+cut/bin/
+uniq/bin/
