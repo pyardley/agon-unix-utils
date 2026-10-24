@@ -1,71 +1,97 @@
 # agon-unix-utils
 
-Minimal Unix-style **cut** and **uniq** moslets for the [Agon Light](https://www.thebyteattic.com/p/agon.html) / Console8 (MOS).
+Unix-style command-line utilities for the [Agon Light](https://www.thebyteattic.com/p/agon.html) / Agon Light 2 / Console8 (MOS moslets).
 
-Built with [AgDev](https://github.com/pcawte/AgDev). Binaries are moslets (load address `0x0B0000`) — copy `mos/*.bin` to the SD card `mos/` folder.
+This repository contains **AgDev**-built moslets authored here, plus notes on other utilities commonly installed on the same SD card from the Agon community.
 
-Prebuilt binaries for convenience: `mos/cut.bin`, `mos/uniq.bin`.
-
-## cut
-
-Extract fields from each line of a text file.
-
-```text
-cut -d, -f2 data.csv
-cut -d, -f1,3 data.csv
-cut -d : -f1 passwd.txt
-```
-
-| Option | Meaning |
-|--------|---------|
-| `-d delim` / `-dX` | Field delimiter (default TAB). Prefer `-d,` so a bare comma is not a separate token. |
-| `-f list` / `-f1,3` | Comma-separated **1-based** field numbers |
-| `-h` | Help |
-
-No `-c` (characters) and no ranges (`1-3`) in this minimal port.
-
-## uniq
-
-Collapse **adjacent** duplicate lines (same as classic `uniq`). Sort first for global uniqueness (`sort` from Lennart’s utilities).
-
-```text
-uniq names.txt
-uniq -c names.txt
-uniq -d names.txt
-uniq -u names.txt
-```
-
-| Option | Meaning |
-|--------|---------|
-| `-c` | Prefix count of occurrences |
-| `-d` | Only duplicated lines |
-| `-u` | Only lines that appear once |
-| `-h` | Help |
-
-## Build
+Prebuilt binaries from this repo: `mos/*.bin` (load address `0x0B0000`). Copy them into the SD card `mos/` folder.
 
 ```bash
-export PATH="$HOME/development/tools/agdev/bin:$PATH"
 make
+make install   # copies to ~/.agon-sdcard/mos/ when using Fab Agon Emulator
 ```
 
-## Install
+---
 
-```bash
-make install
-# or: cp mos/*.bin ~/.agon-sdcard/mos/
-```
+## Utilities in this repository
 
-## Test
+| Command | Description | Example |
+|--------|-------------|---------|
+| **cut** | Extract fields from each line (`-d`, `-f`; ranges in field lists are comma-separated numbers) | `cut -d, -f1,3 data.csv` |
+| **uniq** | Collapse adjacent duplicate lines (`-c` / `-d` / `-u`) | `uniq -c names.txt` |
+| **touch** | Create an empty file, or open/close an existing one | `touch new.txt` |
+| **tee** | Copy a file to stdout and to another file (`-a` append) | `tee out.txt in.txt` |
+| **tr** | Translate or delete characters (`-d`; supports `a-z` style ranges) | `tr a-z A-Z file.txt` |
+| **diff** | Line-oriented compare (`-q` quiet) | `diff a.txt b.txt` |
+| **du** | Disk usage of files/dirs in bytes (`-s` summarise) | `du -s games` |
+| **df** | Report bytes *used* on the volume (free space N/A via MOS API) | `df` |
 
-Sample inputs are in `tests/`. On this machine they were verified with Fab Agon Emulator’s CLI (`agon-cli-emulator`) via `autoexec.txt` redirects — all of:
+Build requires [AgDev](https://github.com/pcawte/AgDev) (`cedev-config` / `ez80-clang` on `PATH`).
 
-- `cut -d, -f2`
-- `cut -d, -f1,3`
-- `uniq` / `uniq -c` / `uniq -d` / `uniq -u`
+---
 
-passed against `tests/cut_in.txt` and `tests/uniq_in.txt`.
+## Other utilities installed on this machine’s SD card
+
+These are **not** built from this repo’s source; they come from community projects. Links go to the upstream repositories.
+
+### From [vascocosta/agon-utils](https://github.com/vascocosta/agon-utils)
+
+| Command | Description |
+|--------|-------------|
+| **head** | Print the first *n* lines of a file (`-n`) |
+| **tail** | Print the last *n* lines of a file (`-n`) |
+| **vgrep** | Minimal grep (`-i`, single file) |
+| *(also upstream)* | `echo`, `strings`, `wc` — available from the same repo if you install them |
+
+Prebuilt copies of `head` / `tail` used here: `third_party/vascocosta/`.
+
+### From [lennart-benschop/agon-utilities](https://github.com/lennart-benschop/agon-utilities)
+
+| Command | Description |
+|--------|-------------|
+| **grep** | Search text files (`-i`, wildcards, multi-file) |
+| **more** | Page through a text file |
+| **wc** | Count lines / words / characters |
+| **cal** | Calendar |
+| **comp** | Byte-compare two files |
+| **concat** | Concatenate files |
+| **find** | Find files by name pattern (whole volume) |
+| **memfill** | Fill a RAM range |
+| **font** / **fontctl** | Bitmap font load / select |
+| **nano** | Nano-style editor (moslet) |
+| **loadfont** / **recode** / **sort** / **ne** / **mc** | In `/bin/` — fonts, encoding, sort, editors, Midnight Commander–style UI |
+
+### From [tomm/popup-mos](https://github.com/tomm/popup-mos) (and linked projects)
+
+Batteries-included SD template; notable extras often installed from it:
+
+| Command | Description | Upstream |
+|--------|-------------|----------|
+| **unzip** / **gunzip** | Extract ZIP / gzip | [sijnstra/agon-projects](https://github.com/sijnstra/agon-projects) |
+| **vi** | BusyBox vi | [tomm/toms-agon-experiments](https://github.com/tomm/toms-agon-experiments) |
+| **ez80asm** / **zap** | On-device assemblers | [envenomator/agon-ez80asm](https://github.com/envenomator/agon-ez80asm), [avalonbits/zap](https://github.com/avalonbits/zap) |
+| **flash** | Flash MOS/VDP firmware | [AgonPlatform/agon-flash](https://github.com/AgonPlatform/agon-flash) |
+| **hexload** / **hexdump** / **memdump** / **strings** | Serial load & inspection | envenomator / sijinstra |
+| **crc32** | Checksums | [envenomator/agon-crc32](https://github.com/envenomator/agon-crc32) |
+| **calc24** / **bootlogo** / **playmod** / **matrix** | Calculator, splash, MOD player, demo | sijinstra / HeathenUK |
+| **bbcbasic** / **bbcbasic24** / **basic** | BBC BASIC interpreters | [breakintoprogram](https://github.com/breakintoprogram/agon-bbc-basic), [envenomator/agon-bbc-basic](https://github.com/envenomator/agon-bbc-basic) |
+| **acc** / **aed** | On-device C compiler / advanced editor | [avalonbits/acc](https://github.com/avalonbits/acc), [avalonbits/aed](https://github.com/avalonbits/aed) |
+
+Games pack (separate folder): also from [popup-mos](https://github.com/tomm/popup-mos) `games/`.
+
+### Built into MOS (no moslet needed)
+
+Examples: `CAT` / `DIR`, `TYPE`, `COPY`, `DELETE` / `RM`, `MkDir`, `CD`, `LOAD`, `RUN`, `HELP`, `RENAME`, …
+
+---
+
+## Notes for Agon
+
+- MOS does **not** support Unix pipes (`|`). Tools take **file arguments** (and optional `>` redirection).
+- Prefer attached options where commas matter, e.g. `cut -d, -f1,3`, `tr a-z A-Z`.
+- `diff` exits with status 1 when files differ (can stop `autoexec.txt` / `*Exec` scripts).
+- `df` reports **used** bytes only; free space is not exposed through the AgDev MOS API used here.
 
 ## License
 
-MIT
+MIT (for code in this repository). Third-party binaries remain under their upstream licenses.

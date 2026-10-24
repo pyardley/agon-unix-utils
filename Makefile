@@ -2,19 +2,23 @@
 
 export PATH := $(HOME)/development/tools/agdev/bin:$(PATH)
 
+UTILS = cut uniq touch tee tr diff du df
+
 all:
-	$(MAKE) -C cut
-	$(MAKE) -C uniq
+	@for u in $(UTILS); do $(MAKE) -C $$u; done
 	mkdir -p bin mos
-	cp -f cut/bin/cut.bin bin/cut.bin
-	cp -f uniq/bin/uniq.bin bin/uniq.bin
-	cp -f cut/bin/cut.bin mos/cut.bin
-	cp -f uniq/bin/uniq.bin mos/uniq.bin
+	@for u in $(UTILS); do \
+		cp -f $$u/bin/$$u.bin bin/$$u.bin; \
+		cp -f $$u/bin/$$u.bin mos/$$u.bin; \
+	done
 
 clean:
-	$(MAKE) -C cut clean || true
-	$(MAKE) -C uniq clean || true
-	rm -f bin/cut.bin bin/uniq.bin mos/cut.bin mos/uniq.bin
+	@for u in $(UTILS); do $(MAKE) -C $$u clean || true; done
+	rm -f bin/*.bin mos/*.bin
 
 install: all
-	cp -f mos/cut.bin mos/uniq.bin $(HOME)/.agon-sdcard/mos/
+	cp -f mos/*.bin $(HOME)/.agon-sdcard/mos/
+	@if [ -d third_party/vascocosta ]; then \
+		cp -f third_party/vascocosta/head.bin third_party/vascocosta/tail.bin \
+			$(HOME)/.agon-sdcard/mos/; \
+	fi
